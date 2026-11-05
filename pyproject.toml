@@ -1,7 +1,7 @@
 [project]
 name = "shopkeeper-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "面向电商数仓的自然语言问数 Agent：元数据知识库 + 混合检索 + LangGraph 多阶段推理 + SQL 生成执行"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [

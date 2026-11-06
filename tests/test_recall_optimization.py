@@ -128,7 +128,8 @@ class RecallColumnTest(unittest.IsolatedAsyncioTestCase):
         state = DataAgentState(query="统计华北地区的销售总额", keywords=["华北", "销售额"])
 
         with patch(
-            "app.agent.nodes.recall_column.llm", extension_llm(["销售额", "成交金额"])
+            "app.agent.nodes.recall_column.fast_llm",
+            extension_llm(["销售额", "成交金额"]),
         ):
             result = await recall_column(state, runtime)
 
@@ -157,7 +158,9 @@ class RecallMetricTest(unittest.IsolatedAsyncioTestCase):
         )
         state = DataAgentState(query="统计华北地区的销售总额", keywords=["销售总额"])
 
-        with patch("app.agent.nodes.recall_metric.llm", extension_llm(["GMV", "成交额"])):
+        with patch(
+            "app.agent.nodes.recall_metric.fast_llm", extension_llm(["GMV", "成交额"])
+        ):
             result = await recall_metric(state, runtime)
 
         self.assertEqual(len(client.calls), 1)

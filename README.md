@@ -160,6 +160,9 @@ LLM_API_KEY=your_real_api_key
 ```yaml
 llm:
     model_name: Pro/zai-org/GLM-5.1
+    # 关键词扩写、候选过滤等轻量任务可单独指定更快的模型
+    # 留空表示复用 model_name，也可用环境变量 LLM_FAST_MODEL 临时覆盖
+    fast_model_name: ""
     api_key: ${oc.env:LLM_API_KEY}
     base_url: https://api.siliconflow.cn/v1
 ```
@@ -284,6 +287,15 @@ pnpm test      # node:test，覆盖 SSE 事件解析与节点耗时计算
 pnpm lint      # tsc 类型检查
 pnpm build     # 生产构建
 ```
+
+### 性能基准
+
+```bash
+uv run python tests/bench_query.py --runs 5
+```
+
+脚本会连续发起多次问数请求，从 SSE 事件时间戳还原每个节点的耗时，并输出 p50 / min / max。
+单次采样容易被大模型抖动误导，对比优化效果时请以中位数为准，并交错采样。用 `--url` 可以指向另一个实例做 A/B。
 
 <a id="boundaries"></a>
 

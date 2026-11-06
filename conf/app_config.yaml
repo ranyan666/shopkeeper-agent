@@ -40,5 +40,8 @@ es:
 
 llm:
   model_name: Pro/zai-org/GLM-5.1
+  # 关键词扩写和候选过滤这类轻量任务使用的模型
+  # 留空则复用 model_name；也可用环境变量 LLM_FAST_MODEL 临时覆盖，便于做 A/B 对比
+  fast_model_name: ""
   api_key: ${oc.env:LLM_API_KEY}
   base_url: https://api.siliconflow.cn/v1

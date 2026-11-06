@@ -85,6 +85,9 @@ class LLMConfig:
     model_name: str
     api_key: str
     base_url: str
+    # 轻量任务（关键词扩写、候选过滤）使用的更快的模型
+    # 留空表示复用 model_name，行为与旧版本一致
+    fast_model_name: str = ""
 
 
 @dataclass

@@ -8,6 +8,7 @@ SQL 执行节点
 from langgraph.runtime import Runtime
 
 from app.agent.context import DataAgentContext
+from app.agent.meta import build_meta_event
 from app.agent.state import DataAgentState
 from app.core.log import logger
 
@@ -28,6 +29,11 @@ async def run_sql(state: DataAgentState, runtime: Runtime[DataAgentContext]):
         result = await dw_mysql_repository.run(sql)
         logger.info(f"SQL执行结果：{result}")
         writer({"type": "progress", "step": step, "status": "success"})
+
+        # 执行成功后把 SQL、召回关键词和指标口径一并推给前端
+        # 用户展开后能看清这次结果是怎么算出来的，而不是只拿到一张表
+        writer(build_meta_event(state))
+
         writer({"type": "result", "data": result})
 
     except Exception as e:

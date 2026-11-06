@@ -49,6 +49,10 @@
   - 相比单纯的表级或字段级检索，更贴近真实的业务分析流程。
 - **从检索到执行的完整可运行链路**
   - 真实生成 SQL、执行查询，并以流式方式返回结果，不止步于 Prompt 设计。
+- **查询依据可追溯**
+  - 结果之外还会推送本次查询用到的 SQL、召回关键词和命中指标口径，前端可展开查看并一键复制，方便业务方核对「这个数是怎么算出来的」。
+- **执行链路耗时可视**
+  - 执行流程图按节点展示耗时并汇总总耗时，便于定位链路瓶颈。
 - **清晰的工程化后端结构**
   - `FastAPI + LangGraph + Repository + Client Manager`，分层组织配置、客户端、仓储、服务与智能体流程。
 - **可扩展的架构基础**
@@ -241,21 +245,45 @@ POST http://127.0.0.1:8000/api/query
 
 SSE 消息类型：
 
-| 类型       | 含义         |
-| ---------- | ------------ |
-| `progress` | 节点执行进度 |
-| `result`   | 最终查询结果 |
-| `error`    | 全局异常消息 |
+| 类型       | 含义                                       |
+| ---------- | ------------------------------------------ |
+| `progress` | 节点执行进度                               |
+| `meta`     | 查询依据：SQL、召回关键词与命中指标口径    |
+| `result`   | 最终查询结果                               |
+| `error`    | 全局异常消息                               |
+
+`meta` 事件固定发生在 `result` 之前，前端据此把「查询依据」和结果一起渲染：
+
+```json
+{
+    "type": "meta",
+    "sql": "SELECT SUM(o.amount) FROM dw.dwd_order o WHERE o.region = '华北'",
+    "keywords": ["华北", "销售额"],
+    "metrics": [{ "name": "GMV", "description": "成交总额", "alias": ["成交额"] }]
+}
+```
 
 ## ✅ 测试
+
+### 后端
 
 ```bash
 uv run python -m unittest discover -s tests -p "test_*.py"
 ```
 
-- `test_api_contract.py` / `test_query_service.py` 是纯单元测试，不依赖任何外部服务。
+- `test_api_contract.py` / `test_query_service.py` / `test_query_meta.py` 是纯单元测试，不依赖任何外部服务。
+- `test_query_meta.py` 覆盖 SQL 展示格式、关键词与口径整理、`run_sql` 发送 `meta` 事件，以及 `meta` 穿透 HTTP 的 SSE 契约。
 - `test_environment.py` / `test_metadata.py` / `test_retrieval.py` 属于集成测试，需要先启动 Docker 基础服务并完成元数据知识库构建。
 - `tests/e2e_smoke.py` 是端到端冒烟脚本，需先启动后端后单独运行。
+
+### 前端
+
+```bash
+cd frontend
+pnpm test      # node:test，覆盖 SSE 事件解析与节点耗时计算
+pnpm lint      # tsc 类型检查
+pnpm build     # 生产构建
+```
 
 <a id="boundaries"></a>
 

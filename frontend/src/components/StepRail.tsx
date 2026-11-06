@@ -4,6 +4,7 @@
  */
 import { Check, Circle, LoaderCircle, X } from "lucide-react";
 import { cn } from "../lib/format";
+import { computeStepDurations, formatDuration } from "../lib/timeline";
 import type { ProgressStatus, StepState } from "../types/agent";
 
 type FlowStatus = ProgressStatus | "pending";
@@ -80,7 +81,15 @@ function NodeIcon({ status }: { status: FlowStatus }) {
   return <Circle className="h-3.5 w-3.5" aria-hidden="true" />;
 }
 
-function FlowNodeCard({ node, status }: { node: FlowNode; status: FlowStatus }) {
+function FlowNodeCard({
+  node,
+  status,
+  duration,
+}: {
+  node: FlowNode;
+  status: FlowStatus;
+  duration?: number;
+}) {
   const width = node.w ?? 156;
 
   return (
@@ -110,6 +119,13 @@ function FlowNodeCard({ node, status }: { node: FlowNode; status: FlowStatus }) 
         </span>
         <span className="min-w-0 flex-1 truncate">{node.step}</span>
       </div>
+
+      {duration !== undefined && (
+        // 右对齐而不是居中，避免和从卡片底部中点出发的连线重叠
+        <div className="mt-1 pr-0.5 text-right font-mono text-[11px] leading-4 text-ink/40">
+          {formatDuration(duration)}
+        </div>
+      )}
     </div>
   );
 }
@@ -118,12 +134,15 @@ export function StepRail({ steps = [] }: { steps?: StepState[] }) {
   if (steps.length === 0) return null;
 
   const statusMap = getStatusMap(steps);
+  const { durations, totalMs } = computeStepDurations(steps);
 
   return (
     <section className="mt-4 border border-ink/10 bg-white/40 px-3 py-4 shadow-line">
       <div className="mb-3 flex items-center justify-between gap-3 px-1">
         <div className="text-sm font-semibold text-ink">执行流程</div>
-        <div className="text-xs text-ink/45">LangGraph</div>
+        <div className="text-xs text-ink/45">
+          {totalMs > 0 ? `LangGraph · 总耗时 ${formatDuration(totalMs)}` : "LangGraph"}
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -174,6 +193,7 @@ export function StepRail({ steps = [] }: { steps?: StepState[] }) {
               key={node.step}
               node={node}
               status={statusFor(node.step, statusMap)}
+              duration={durations[node.step]}
             />
           ))}
         </div>

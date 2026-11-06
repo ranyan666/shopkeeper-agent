@@ -102,6 +102,17 @@ export default function App() {
             };
           }
 
+          if (event.type === "meta") {
+            return {
+              ...message,
+              meta: {
+                sql: event.sql,
+                keywords: event.keywords,
+                metrics: event.metrics,
+              },
+            };
+          }
+
           if (event.type === "result") {
             return {
               ...message,

@@ -4,7 +4,8 @@
  */
 import type { AgentEvent } from "../types/agent";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
+// 浏览器里由 Vite 注入；在 node 测试环境中 import.meta.env 不存在，所以这里用可选链兜底
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
 type QueryOptions = {
   signal?: AbortSignal;
@@ -57,7 +58,7 @@ export async function streamQuery(query: string, options: QueryOptions) {
   }
 }
 
-function parseSseChunk(chunk: string): AgentEvent | null {
+export function parseSseChunk(chunk: string): AgentEvent | null {
   const payload = chunk
     .split("\n")
     .filter((line) => line.startsWith("data:"))

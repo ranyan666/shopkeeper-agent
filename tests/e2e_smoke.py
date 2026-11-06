@@ -11,6 +11,7 @@ EXPECTED_AMOUNT = 41099.5
 def main():
     events = []
     result = None
+    meta = None
 
     with httpx.Client(timeout=180) as client:
         with client.stream("POST", URL, json={"query": QUERY}) as response:
@@ -20,20 +21,38 @@ def main():
                     continue
                 event = json.loads(line[6:])
                 events.append(event)
-                print(
-                    f"{event.get('type')}: "
-                    f"{event.get('step', '')} "
-                    f"{event.get('status', '')}"
-                )
+
+                if event["type"] == "meta":
+                    meta = event
+                    metrics = [metric["name"] for metric in event["metrics"]]
+                    print(
+                        f"meta: SQL {len(event['sql'])} 字符, "
+                        f"关键词={event['keywords']}, 指标={metrics}"
+                    )
+                elif event["type"] == "result":
+                    result = event["data"]
+                else:
+                    print(
+                        f"{event.get('type')}: "
+                        f"{event.get('step', '')} "
+                        f"{event.get('status', '')}"
+                    )
+
                 if event["type"] == "error":
                     print(f"E2E_FAILED: {event['message']}")
                     sys.exit(1)
-                if event["type"] == "result":
-                    result = event["data"]
 
     assert events, "没有收到 SSE 事件"
     assert result, "没有收到最终结果"
     assert len(result) == 1, f"结果行数错误：{result}"
+
+    # 查询依据必须随结果一起返回，且到达顺序在 result 之前
+    assert meta, "没有收到 meta 事件"
+    assert meta["sql"].strip(), "meta 中的 SQL 为空"
+    assert meta["keywords"], "meta 中的关键词为空"
+    types = [event["type"] for event in events]
+    assert types.index("meta") < types.index("result"), "meta 应先于 result 到达"
+
     actual_amount = float(result[0]["销售总额"])
     assert abs(actual_amount - EXPECTED_AMOUNT) < 0.01, (
         f"结果错误：预期 {EXPECTED_AMOUNT}，实际 {actual_amount}"

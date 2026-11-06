@@ -3,8 +3,10 @@
 
 负责根据关键词从字段向量知识库中召回候选字段
 它解决的是“用户问题可能对应哪些数据库字段”的问题
-本章的主线是：关键词扩展 -> Embedding -> Qdrant 相似度检索 -> ColumnInfo 去重
+本章的主线是：关键词扩展 -> 批量 Embedding -> 并发 Qdrant 相似度检索 -> ColumnInfo 去重
 """
+
+import asyncio
 
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
@@ -12,6 +14,7 @@ from langgraph.runtime import Runtime
 
 from app.agent.context import DataAgentContext
 from app.agent.llm import llm
+from app.agent.recall_utils import embed_in_batches
 from app.agent.state import DataAgentState
 from app.core.log import logger
 from app.entities.column_info import ColumnInfo
@@ -45,17 +48,22 @@ async def recall_column(state: DataAgentState, runtime: Runtime[DataAgentContext
 
         result = await chain.ainvoke({"query": query})
 
-        # 原始关键词和 LLM 扩展词一起参与召回；set 去重，避免重复请求同一关键词
-        keywords = set(keywords + result)
+        # 原始关键词和 LLM 扩展词一起去重
+        # 用 dict.fromkeys 而不是 set，保证关键词顺序稳定，便于复现问题
+        keywords = list(dict.fromkeys(keywords + result))
+
+        # 所有关键词一次批量向量化，再并发检索，避免逐个关键词串行往返
+        embeddings = await embed_in_batches(embedding_client, keywords)
+        search_results = await asyncio.gather(
+            *[
+                column_qdrant_repository.search(embedding)
+                for embedding in embeddings
+            ]
+        )
 
         # 用字段 id 做唯一键，因为多个关键词、同一字段的多个向量点都可能命中同一个字段
         column_info_map: dict[str, ColumnInfo] = {}
-        for keyword in keywords:
-            # 查询词必须先转成向量，才能和第 9 章写入 Qdrant 的字段向量做相似度检索
-            embedding = await embedding_client.aembed_query(keyword)
-            current_column_infos: list[
-                ColumnInfo
-            ] = await column_qdrant_repository.search(embedding)
+        for current_column_infos in search_results:
             for column_info in current_column_infos:
                 if column_info.id not in column_info_map:
                     column_info_map[column_info.id] = column_info

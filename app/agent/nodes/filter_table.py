@@ -16,6 +16,61 @@ from app.agent.state import DataAgentState, TableInfoState
 from app.core.log import logger
 from app.prompt.prompt_loader import load_prompt
 
+# 过滤任务只需要判断字段语义，不需要真实取值样例和别名
+# 保留 role 是因为提示词要求模型在跨表时选出 join 所需的主外键字段
+FILTER_COLUMN_FIELDS = ("name", "type", "role", "description")
+
+
+def build_filter_payload(table_infos: list[TableInfoState]) -> str:
+    """构建过滤用的精简表结构 YAML
+
+    examples 里是字段真实取值、alias 是同义词，体积都不小，
+    但对“哪些字段和问题相关”这个判断几乎没有帮助，发给模型只会拖慢响应。
+    """
+
+    trimmed_tables = [
+        {
+            "name": table_info.get("name", ""),
+            "role": table_info.get("role", ""),
+            "description": table_info.get("description", ""),
+            "columns": [
+                {field: column.get(field, "") for field in FILTER_COLUMN_FIELDS}
+                for column in table_info.get("columns", [])
+            ],
+        }
+        for table_info in table_infos
+    ]
+    return yaml.dump(trimmed_tables, allow_unicode=True, sort_keys=False)
+
+
+def apply_selection(
+    table_infos: list[TableInfoState], selection: dict
+) -> list[TableInfoState]:
+    """按模型给出的选择结果裁剪原始表结构
+
+    模型只负责选择，裁剪由程序完成，避免模型重写复杂结构时出错。
+    """
+
+    if not isinstance(selection, dict):
+        raise ValueError(f"过滤结果不是 JSON 对象：{selection!r}")
+
+    filtered_table_infos: list[TableInfoState] = []
+    for table_info in table_infos:
+        name = table_info["name"]
+        if name not in selection:
+            continue
+
+        selected_columns = set(selection[name] or [])
+        columns = [
+            column
+            for column in table_info["columns"]
+            if column["name"] in selected_columns
+        ]
+        # 返回新对象，避免直接改写 state 里已有的表结构
+        filtered_table_infos.append({**table_info, "columns": columns})
+
+    return filtered_table_infos
+
 
 async def filter_table(state: DataAgentState, runtime: Runtime[DataAgentContext]):
     """根据用户问题裁剪候选表结构上下文"""
@@ -41,21 +96,10 @@ async def filter_table(state: DataAgentState, runtime: Runtime[DataAgentContext]
         result = await chain.ainvoke(
             {
                 "query": query,
-                "table_infos": yaml.dump(
-                    table_infos, allow_unicode=True, sort_keys=False
-                ),
+                "table_infos": build_filter_payload(table_infos),
             }
         )
-        # 模型只负责选择，程序根据选择结果从原始 TableInfoState 中裁剪，避免模型重写复杂结构出错
-        filtered_table_infos: list[TableInfoState] = []
-        for table_info in table_infos:
-            if table_info["name"] in result:
-                table_info["columns"] = [
-                    column_info
-                    for column_info in table_info["columns"]
-                    if column_info["name"] in result[table_info["name"]]
-                ]
-                filtered_table_infos.append(table_info)
+        filtered_table_infos = apply_selection(table_infos, result)
 
         logger.info(
             f"过滤后的表信息：{[filtered_table_info['name'] for filtered_table_info in filtered_table_infos]}"

@@ -3,8 +3,10 @@
 
 负责根据用户问题从指标向量知识库中召回候选指标
 它帮助 Agent 把“销售额 转化率 客单价”等业务表达映射到已定义指标
-实现路径和字段召回类似：关键词扩展 -> Embedding -> Qdrant 相似度检索 -> MetricInfo 去重
+实现路径和字段召回类似：关键词扩展 -> 批量 Embedding -> 并发 Qdrant 相似度检索 -> MetricInfo 去重
 """
+
+import asyncio
 
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
@@ -12,6 +14,7 @@ from langgraph.runtime import Runtime
 
 from app.agent.context import DataAgentContext
 from app.agent.llm import llm
+from app.agent.recall_utils import embed_in_batches
 from app.agent.state import DataAgentState
 from app.core.log import logger
 from app.entities.metric_info import MetricInfo
@@ -45,17 +48,21 @@ async def recall_metric(state: DataAgentState, runtime: Runtime[DataAgentContext
 
         result = await chain.ainvoke({"query": query})
 
-        # 通用关键词和指标扩展词都参与召回，提升同义指标的命中率
-        keywords = set(keywords + result)
+        # 通用关键词和指标扩展词都参与召回，用 dict.fromkeys 去重并保持顺序稳定
+        keywords = list(dict.fromkeys(keywords + result))
+
+        # 批量向量化 + 并发检索，替代逐关键词串行往返
+        embeddings = await embed_in_batches(embedding_client, keywords)
+        search_results = await asyncio.gather(
+            *[
+                metric_qdrant_repository.search(embedding)
+                for embedding in embeddings
+            ]
+        )
 
         # 用指标 id 做唯一键，避免多个关键词命中同一个指标时重复写入 state
         metric_info_map: dict[str, MetricInfo] = {}
-        for keyword in keywords:
-            # 指标库是向量集合，查询词必须先 Embedding 成 query vector
-            embedding = await embedding_client.aembed_query(keyword)
-            current_metric_infos: list[
-                MetricInfo
-            ] = await metric_qdrant_repository.search(embedding)
+        for current_metric_infos in search_results:
             for metric_info in current_metric_infos:
                 if metric_info.id not in metric_info_map:
                     metric_info_map[metric_info.id] = metric_info

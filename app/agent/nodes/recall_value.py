@@ -3,8 +3,10 @@
 
 负责从字段值全文索引中召回候选取值
 当用户问题里出现店铺名 类目名 地区名等业务值时，这一步可以帮助定位真实字段和值
-实现路径和字段/指标召回不同：关键词扩展 -> Elasticsearch 全文检索 -> ValueInfo 去重
+实现路径和字段/指标召回不同：关键词扩展 -> 并发 Elasticsearch 全文检索 -> ValueInfo 去重
 """
+
+import asyncio
 
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
@@ -45,15 +47,17 @@ async def recall_value(state: DataAgentState, runtime: Runtime[DataAgentContext]
 
         result = await chain.ainvoke({"query": query})
 
-        # 通用关键词和字段值扩展词一起检索 ES，尽量提高真实取值召回率
-        keywords = set(keywords + result)
+        # 通用关键词和字段值扩展词一起去重，保持顺序稳定
+        keywords = list(dict.fromkeys(keywords + result))
+
+        # ES 检索本身很快，但逐个 await 仍是串行排队，这里一次性并发发出
+        search_results = await asyncio.gather(
+            *[value_es_repository.search(keyword) for keyword in keywords]
+        )
 
         # 用 ValueInfo.id 去重，避免多个关键词命中同一条字段值记录
         value_infos_map: dict[str, ValueInfo] = {}
-        for keyword in keywords:
-            current_value_infos: list[ValueInfo] = await value_es_repository.search(
-                keyword
-            )
+        for current_value_infos in search_results:
             for current_value_info in current_value_infos:
                 if current_value_info.id not in value_infos_map:
                     value_infos_map[current_value_info.id] = current_value_info
